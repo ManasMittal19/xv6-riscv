@@ -113,6 +113,8 @@ allocproc(void)
 
   for(p = proc; p < &proc[NPROC]; p++) {
     acquire(&p->lock);
+    // Step 2 : intialize for all process to 0 
+    memset(p->syscall_count, 0, sizeof(p->syscall_count));
     if(p->state == UNUSED) {
       goto found;
     } else {
@@ -414,6 +416,11 @@ wait(uint64 addr)
             release(&wait_lock);
             return -1;
           }
+          // a little bit update to the parent
+          for(int i = 0; i < 32; i++){
+            p->syscall_count[i] += pp->syscall_count[i];
+          }
+
           freeproc(pp);
           release(&pp->lock);
           release(&wait_lock);

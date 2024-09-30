@@ -91,3 +91,34 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+uint64 
+count_syscalls(struct proc *p, int syscall_num) {
+    uint64 count = 0;
+    struct proc * np;
+    if (p == 0) {
+        return count;
+    }
+
+    count += p->syscall_count[syscall_num];
+    
+    for(np = proc; np < &proc[NPROC]; np++){
+    if(np->parent == p && np->state != UNUSED)
+      count += count_syscalls(np, syscall_num);
+  }
+    return count;
+}
+uint64
+sys_getSysCount(void)
+{
+    int syscall_num;
+    argint(0 , &syscall_num);
+    struct proc *p = myproc();
+    
+    
+    // Check if the syscall_num is within valid bounds
+    if (syscall_num < 0 || syscall_num >= NSYSCALL)
+        return -1;
+    
+    return count_syscalls(p , syscall_num);
+}

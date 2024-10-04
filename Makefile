@@ -123,16 +123,19 @@ mkfs/mkfs: mkfs/mkfs.c $K/fs.h $K/param.h
 .PRECIOUS: %.o
 
 UPROGS=\
+	$U/_alarmtest\
 	$U/_cat\
 	$U/_echo\
 	$U/_forktest\
 	$U/_grep\
+	$U/_georgetest\
 	$U/_init\
 	$U/_kill\
 	$U/_ln\
 	$U/_ls\
 	$U/_mkdir\
 	$U/_rm\
+	$U/_schedulertest\
 	$U/_sh\
 	$U/_stressfs\
 	$U/_syscount\
@@ -163,6 +166,19 @@ QEMUGDB = $(shell if $(QEMU) -help | grep -q '^-gdb'; \
 ifndef CPUS
 CPUS := 3
 endif
+
+ifndef SCHEDULER
+SCHEDULER := RR
+endif
+
+# Validate SCHEDULER value
+ifeq ($(filter $(SCHEDULER),RR LBS MLFQ),)
+$(error Invalid SCHEDULER value: $(SCHEDULER). Supported values are RR, LBS, and MLFQ)
+endif
+
+# to tell the C Compiler about the Scheduler macro
+CFLAGS += -DSCHED_$(SCHEDULER)
+$(info Using scheduler: SCHED_$(SCHEDULER))
 
 QEMUOPTS = -machine virt -bios none -kernel $K/kernel -m 128M -smp $(CPUS) -nographic
 QEMUOPTS += -global virtio-mmio.force-legacy=false

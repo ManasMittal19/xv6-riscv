@@ -190,3 +190,7 @@ uint64 count_syscalls(struct proc*, int);
 
 // number of elements in fixed-size array
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))
+
+// waitx
+int             waitx(uint64, uint*, uint*);
+void            update_time(void);

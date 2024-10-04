@@ -78,7 +78,20 @@ usertrap(void)
 
   // give up the CPU if this is a timer interrupt.
   if(which_dev == 2)
-    yield();
+  {
+     yield();
+  struct proc *p = myproc();
+    if(p->alarm_interval > 0) {
+      p->ticks_count++;
+      if(p->ticks_count >= p->alarm_interval && !p->alarm_on) {
+        p->ticks_count = 0;
+        p->alarm_on = 1;
+        memmove(p->alarm_tf, p->trapframe, sizeof(struct trapframe));
+        p->trapframe->epc = p->alarm_handler;
+      }
+    }
+  }
+   
 
   usertrapret();
 }
@@ -152,7 +165,18 @@ kerneltrap()
 
   // give up the CPU if this is a timer interrupt.
   if(which_dev == 2 && myproc() != 0)
+  {
     yield();
+    struct proc *p = myproc();
+    if(p->alarm_on && p->alarm_interval > 0) {
+      p->ticks_count++;
+      if(p->ticks_count >= p->alarm_interval) {
+        p->ticks_count = 0;
+        p->trapframe->epc = p->alarm_handler;
+      }
+    }
+  }
+   
 
   // the yield() may have caused some traps to occur,
   // so restore trap registers for use by kernelvec.S's sepc instruction.
@@ -166,6 +190,7 @@ clockintr()
   if(cpuid() == 0){
     acquire(&tickslock);
     ticks++;
+    update_time();
     wakeup(&ticks);
     release(&tickslock);
   }

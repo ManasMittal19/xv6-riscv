@@ -5,6 +5,8 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+uint64
+time_counter = 1;
 
 struct cpu cpus[NCPU];
 
@@ -133,7 +135,24 @@ found:
     release(&p->lock);
     return 0;
   }
+   // Allocate a trapframe page for alarm.
+  if((p->alarm_tf = (struct trapframe *)kalloc()) == 0){
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
 
+  // Initialize alarm fields
+  p->alarm_interval = 0;
+  p->alarm_handler = 0;
+  p->ticks_count = 0;
+  p->alarm_on = 0;
+
+    #ifdef SCHED_LBS
+    p->tickets = 1; // 1 by default
+    p->arrival_time = time_counter;
+    time_counter++;
+    #endif 
   // An empty user page table.
   p->pagetable = proc_pagetable(p);
   if(p->pagetable == 0){
@@ -147,7 +166,9 @@ found:
   memset(&p->context, 0, sizeof(p->context));
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
-
+  p->rtime = 0;
+  p->etime = 0;
+  p->ctime = ticks;
   return p;
 }
 
@@ -160,6 +181,10 @@ freeproc(struct proc *p)
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
+
+  if(p->alarm_tf)
+    kfree((void*)p->alarm_tf);
+  p->alarm_tf = 0;
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
   p->pagetable = 0;
@@ -231,6 +256,28 @@ uchar initcode[] = {
 };
 
 // Set up first user process.
+unsigned long 
+custom_random_in_range(int min, int max) {
+    // LCG parameters
+    unsigned long a = 1664525;
+    unsigned long c = 1013904223;
+    unsigned long m = 4294967296;  // 2^32
+    static unsigned long seed = 12345;  // Example seed, can be set initially or dynamically
+
+    // Linear Congruential Generator (LCG) logic
+    seed = (a * seed + c) % m;  // Update the seed to generate the next number
+
+    // Ensure min is less than max, swap if necessary
+    if (min > max) {
+        int temp = min;
+        min = max;
+        max = temp;
+    }
+
+    // Calculate range and map the generated number to the custom range
+    unsigned long range = max - min + 1;
+    return (seed % range) + min;
+}
 void
 userinit(void)
 {
@@ -314,6 +361,10 @@ fork(void)
 
   pid = np->pid;
 
+  #ifdef SCHED_LBS
+  np->tickets = p->tickets;
+  #endif
+
   release(&np->lock);
 
   acquire(&wait_lock);
@@ -379,7 +430,7 @@ exit(int status)
 
   p->xstate = status;
   p->state = ZOMBIE;
-
+  p->etime = ticks;
   release(&wait_lock);
 
   // Jump into the scheduler, never to return.
@@ -451,6 +502,8 @@ wait(uint64 addr)
 void
 scheduler(void)
 {
+  #ifdef SCHED_RR
+  // printf("RRRRRRRR\n");
   struct proc *p;
   struct cpu *c = mycpu();
 
@@ -464,6 +517,7 @@ scheduler(void)
     int found = 0;
     for(p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
+      // printf("RRR");
       if(p->state == RUNNABLE) {
         // Switch to chosen process.  It is the process's job
         // to release its lock and then reacquire it
@@ -485,6 +539,69 @@ scheduler(void)
       asm volatile("wfi");
     }
   }
+  #elif defined(SCHED_LBS)
+  
+  struct proc *p;
+  struct cpu *c = mycpu();
+  c->proc = 0;
+
+  for(;;) {
+    intr_on();
+    int total_tickets = 0;
+    struct proc *candidates[NPROC];
+    int num_candidates = 0;
+
+    for(p = proc; p < &proc[NPROC]; p++) {
+      acquire(&p->lock);
+      if(p->state == RUNNABLE) {
+        total_tickets += p->tickets;
+        if(num_candidates < NPROC) {
+          candidates[num_candidates++] = p;
+        }
+      }
+      release(&p->lock);
+    }
+
+   
+    if(num_candidates > 0) {
+      int winning_ticket = custom_random_in_range(1, total_tickets);
+      struct proc *winner = 0;
+      int ticket_sum = 0;
+
+      for(int i = 0; i < num_candidates; i++) {
+        ticket_sum += candidates[i]->tickets;
+        if(ticket_sum >= winning_ticket) {
+          winner = candidates[i];
+          break;
+        }
+      }
+   if(winner != 0) {
+      for(int i = 0; i < num_candidates; i++) {
+          if(candidates[i]->tickets == winner->tickets && candidates[i]->arrival_time < winner->arrival_time) {
+            winner = candidates[i];
+          }
+        }
+      }
+
+      if(winner != 0) {
+        acquire(&winner->lock);
+        if(winner->state == RUNNABLE) {
+          winner->state = RUNNING;
+          c->proc = winner;
+          swtch(&c->context, &winner->context);
+          c->proc = 0;
+        }
+        release(&winner->lock);
+      }
+    } else {
+      asm volatile("wfi");
+    }
+  }
+  #elif defined(SCHED_MLFQ)
+    // MLFQ code should be added
+  # else 
+  printf("Unknown scheduler passed\n");
+  #endif
 }
 
 // Switch to scheduler.  Must hold only p->lock
@@ -698,5 +815,95 @@ procdump(void)
       state = "???";
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
+  }
+}
+int
+proc_sigalarm(int interval, uint64 handler)
+{
+  struct proc *p = myproc();
+  p->alarm_interval = interval;
+  p->alarm_handler = handler;
+  p->ticks_count = 0;
+  p->alarm_on = 0;
+  return 0;
+}
+
+int
+proc_sigreturn(void)
+{
+  struct proc *p = myproc();
+  if(p->alarm_on) {
+    memmove(p->trapframe, p->alarm_tf, sizeof(struct trapframe));
+    p->alarm_on = 0;
+  }
+  return 0;
+}
+
+// waitx
+int waitx(uint64 addr, uint *wtime, uint *rtime)
+{
+  struct proc *np;
+  int havekids, pid;
+  struct proc *p = myproc();
+
+  acquire(&wait_lock);
+
+  for (;;)
+  {
+    // Scan through table looking for exited children.
+    havekids = 0;
+    for (np = proc; np < &proc[NPROC]; np++)
+    {
+      if (np->parent == p)
+      {
+        // make sure the child isn't still in exit() or swtch().
+        acquire(&np->lock);
+
+        havekids = 1;
+        if (np->state == ZOMBIE)
+        {
+          // Found one.
+          pid = np->pid;
+          *rtime = np->rtime;
+          *wtime = np->etime - np->ctime - np->rtime;
+          if (addr != 0 && copyout(p->pagetable, addr, (char *)&np->xstate,
+                                   sizeof(np->xstate)) < 0)
+          {
+            release(&np->lock);
+            release(&wait_lock);
+            return -1;
+          }
+          freeproc(np);
+          release(&np->lock);
+          release(&wait_lock);
+          return pid;
+        }
+        release(&np->lock);
+      }
+    }
+
+    // No point waiting if we don't have any children.
+    if (!havekids || p->killed)
+    {
+      release(&wait_lock);
+      return -1;
+    }
+
+    // Wait for a child to exit.
+    sleep(p, &wait_lock); // DOC: wait-sleep
+  }
+}
+
+void update_time()
+{
+  struct proc *p;
+  for (p = proc; p < &proc[NPROC]; p++)
+  {
+    acquire(&p->lock);
+    if (p->state == RUNNING)
+    {
+      p->rtime++;
+    }
+    release(&p->lock);
   }
 }

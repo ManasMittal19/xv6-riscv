@@ -38,6 +38,8 @@ const char *syscall_names[] = {
     "mkdir",    // SYS_mkdir
     "close",    // SYS_close
     "getSysCount" // SYS_getSysCount
+    "sigalarm",  // SYS_sigalarm
+    "sigreturn", // SYS_sigreturn
 };
 
 int
@@ -53,7 +55,7 @@ main(int argc, char *argv[])
     }
     uint64 mask = atoi(argv[1]);
     
-    // creating our command 
+    // creating our command  
     int pid = fork();
     if(pid == 0)
     {

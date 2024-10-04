@@ -34,7 +34,7 @@ sys_wait(void)
   argaddr(0, &p);
   return wait(p);
 }
-
+ 
 uint64
 sys_sbrk(void)
 {
@@ -95,17 +95,17 @@ sys_uptime(void)
 uint64 
 count_syscalls(struct proc *p, int syscall_num) {
     uint64 count = 0;
-    struct proc * np;
+    // struct proc * np;
     if (p == 0) {
         return count;
     }
 
     count += p->syscall_count[syscall_num];
     
-    for(np = proc; np < &proc[NPROC]; np++){
-    if(np->parent == p && np->state != UNUSED)
-      count += count_syscalls(np, syscall_num);
-  }
+  //   for(np = proc; np < &proc[NPROC]; np++){
+  //   if(np->parent == p && np->state != UNUSED)
+  //     count += count_syscalls(np, syscall_num);
+  // }
     return count;
 }
 uint64
@@ -121,4 +121,58 @@ sys_getSysCount(void)
         return -1;
     
     return count_syscalls(p , syscall_num);
+}
+
+uint64
+sys_sigalarm(void)
+{
+  int interval;
+  uint64 handler;
+  argint(0, &interval);
+  argaddr(1, &handler);
+  if(interval < 0 || handler < 0)
+    return -1;
+  
+  return proc_sigalarm(interval, handler);
+}
+
+uint64
+sys_sigreturn(void)
+{
+  return proc_sigreturn();
+}
+
+uint64
+sys_settickets(void)
+{
+  int number;
+  argint(0, &number);
+  
+  if(number <= 0)
+    return -1;
+
+  #ifdef SCHED_LBS
+    myproc()->tickets = number;
+    return number;
+  #else
+    return -1;
+  #endif
+}
+
+
+uint64
+sys_waitx(void)
+{
+  uint64 addr, addr1, addr2;
+  uint wtime, rtime;
+  argaddr(0, &addr);
+  argaddr(1, &addr1); // user virtual memory
+  argaddr(2, &addr2);
+  int ret = waitx(addr, &wtime, &rtime);
+  struct proc *p = myproc();
+  if (copyout(p->pagetable, addr1, (char *)&wtime, sizeof(int)) < 0)
+    return -1;
+  if (copyout(p->pagetable, addr2, (char *)&rtime, sizeof(int)) < 0)
+    return -1;
+  return ret;
 }

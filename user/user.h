@@ -23,6 +23,10 @@ char* sbrk(int);
 int sleep(int);
 int uptime(void);
 int getSysCount(int);
+int sigalarm(int ticks, void (*handler)());
+int sigreturn(void);
+int settickets(int);
+int waitx(int*, int* /*wtime*/, int* /*rtime*/);
 // ulib.c
 int stat(const char*, struct stat*);
 char* strcpy(char*, const char*);

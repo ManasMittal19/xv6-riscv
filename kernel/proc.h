@@ -1,3 +1,4 @@
+
 // Saved registers for kernel context switches.
 struct context {
   uint64 ra;
@@ -105,5 +106,23 @@ struct proc {
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
   int syscall_count[NSYSCALL];    
+  int alarm_interval; // alarm interval
+  uint64 alarm_handler; // alarm handler
+  int ticks_count; // ticks elapsed since last alarm
+  int alarm_on; // flag to indicate if alarm is on
+  struct trapframe *alarm_tf; // trapframe for alarm handler
+  #ifdef SCHED_LBS
+  int tickets; // just need to store tickets , arrival time is stored by ctime
+  int arrival_time;
+  #endif
+
+  #ifndef SCHED_MLFQ
+  int priority; // 0 1 2 3 , 0 being the highest
+  #endif  
+    uint rtime;                  // How long the process ran for
+  uint ctime;                  // When was the process created
+  uint etime;                  // When did the process exited
 };
 extern struct proc proc[NPROC];
+extern int proc_sigalarm(int interval, uint64 handler);
+extern int proc_sigreturn(void); 

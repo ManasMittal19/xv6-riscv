@@ -117,7 +117,9 @@ struct proc {
   #endif
 
   #ifndef SCHED_MLFQ
-  int priority; // 0 1 2 3 , 0 being the highest
+  int priority; // 0 1 2 3 , 0 being the highest , priority tell us which queue we are in
+  int ticks_in_queue; // how many ticks a process has been in the queue
+  // priority along with tick help us determine when to move a process to a lower priority queue
   #endif  
     uint rtime;                  // How long the process ran for
   uint ctime;                  // When was the process created

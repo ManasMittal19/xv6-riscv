@@ -80,7 +80,7 @@ usertrap(void)
   if(which_dev == 2)
   {
      yield();
-  struct proc *p = myproc();
+    struct proc *p = myproc();
     if(p->alarm_interval > 0) {
       p->ticks_count++;
       if(p->ticks_count >= p->alarm_interval && !p->alarm_on) {
@@ -166,7 +166,6 @@ kerneltrap()
   // give up the CPU if this is a timer interrupt.
   if(which_dev == 2 && myproc() != 0)
   {
-    yield();
     struct proc *p = myproc();
     if(p->alarm_on && p->alarm_interval > 0) {
       p->ticks_count++;
@@ -175,6 +174,7 @@ kerneltrap()
         p->trapframe->epc = p->alarm_handler;
       }
     }
+    yield();
   }
    
 

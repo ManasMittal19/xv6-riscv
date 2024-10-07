@@ -10,21 +10,28 @@
 #include <netdb.h>
 #include <unistd.h>
 
-#define PORT "16344" // port on which the server is running
+#define PORT "16347" // port on which the server is running
 #define MAXDATASIZE 1000 // Max number of bytes we can receive at once
 
-int main()
+int main(int argc, char * argv[])
 {
     struct addrinfo hints, *res;
     int client_socket_fd;
     int bytes_received;
     char buffer[MAXDATASIZE];
+    char *server_ip;
+
+    if (argc != 2) {
+        fprintf(stderr, "Usage: %s <server_ip>\n", argv[0]);
+        exit(1);
+    }
+    server_ip = argv[1];
 
     memset(&hints, 0, sizeof hints); // intialization to 0
     hints.ai_family = AF_UNSPEC;     // Can use either IPv4 or IPv6
     hints.ai_socktype = SOCK_STREAM; // TCP stream sockets
 
-    getaddrinfo("127.0.0.1", PORT, &hints, &res); // Get the address info of the server to connect to
+    getaddrinfo(server_ip, PORT, &hints, &res); // Get the address info of the server to connect to
 
     client_socket_fd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
 
@@ -34,13 +41,12 @@ int main()
         exit(1);
     }
 
-    // printf("Client started. Waiting for data...\n");
 
     while (1)
     {
-        // printf("Waiting to receive data...\n");
+
         bytes_received = recv(client_socket_fd, buffer, MAXDATASIZE - 1, 0);
-        // printf("Received %d bytes\n", bytes_received);
+
 
         if (bytes_received == -1) {
             perror("recv");
@@ -50,13 +56,12 @@ int main()
             break;
         }
         
-        buffer[bytes_received] = '\0'; // Null-terminate the received string
-        // printf("Received buffer: '%s'\n", buffer);
+        buffer[bytes_received] = '\0'; 
 
-        if (strstr(buffer, "TURN") != NULL)
+        if (strstr(buffer, "TURN") != NULL) // special turn message. Indicating your turn.
         {
             printf("%s", buffer);
-            // printf("TURN detected. Your move.\n");
+
             printf("Enter your move : (row , col)\n");
             char str[50];
             scanf(" %[^\n]", str);
@@ -69,7 +74,7 @@ int main()
             // printf("Sent %d bytes\n", bytes_sent);
         }
         else if (strstr(buffer, "Would you like to play again? (yes/no): ") != NULL)
-        {
+        {   // a special message asking if the user want to play the again or not
             printf("%s", buffer);
             char response[10];
             scanf(" %[^\n]", response);

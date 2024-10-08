@@ -79,7 +79,17 @@ usertrap(void)
   // give up the CPU if this is a timer interrupt.
   if(which_dev == 2)
   {
-     yield();
+    // // do not call yield() if you have the CPU 
+    // #ifdef SCHED_MLFQ
+    // if(p->state == RUNNING) {
+    //   p->ticks_in_queue++;
+    //   if(p->ticks_in_queue >= p->time_slice) {
+    //     yield(); // yielding the CPU in case of times up
+    //   }
+    // }
+    // #else
+    yield();
+    // #endif
     struct proc *p = myproc();
     if(p->alarm_interval > 0) {
       p->ticks_count++;

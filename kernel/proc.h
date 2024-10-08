@@ -116,14 +116,18 @@ struct proc {
   int arrival_time;
   #endif
 
-  #ifndef SCHED_MLFQ
+  // #ifdef SCHED_MLFQ
   int priority; // 0 1 2 3 , 0 being the highest , priority tell us which queue we are in
-  int ticks_in_queue; // how many ticks a process has been in the queue
-  // priority along with tick help us determine when to move a process to a lower priority queue
-  #endif  
+  int time_slice; // time_slices associated with that queue
+  int ticks_in_queue; // number of ticks the process has been in the queue
+  int arrival_time;
+  // if(p->ticks_in_queue >= p->time_slice) : we need to change the queue
+  // #endif  
     uint rtime;                  // How long the process ran for
   uint ctime;                  // When was the process created
   uint etime;                  // When did the process exited
+
+  
 };
 extern struct proc proc[NPROC];
 extern int proc_sigalarm(int interval, uint64 handler);

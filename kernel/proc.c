@@ -152,11 +152,15 @@ found:
     p->tickets = 1; // 1 by default
     p->arrival_time = time_counter;
     time_counter++;
-    #endif 
 
-    #ifdef SCHED_MLFQ
-    p->priority = 0; // starting from the highest priority
+    #elif defined(SCHED_MLFQ) 
+      p->arrival_time = time_counter;
+      time_counter++;
+      p->priority = 0;
+      p->time_slice = 1;
+      p->ticks_in_queue = 0;
     #endif
+      
   // An empty user page table.
   p->pagetable = proc_pagetable(p);
   if(p->pagetable == 0){
@@ -505,58 +509,11 @@ wait(uint64 addr)
 //    via swtch back to the scheduler.
 
 #ifdef SCHED_MLFQ
-// queue datastructure
-struct node{
-  struct proc p;
-  struct node * next;
-};
-
-struct node * create_node(struct proc * p)
-{
-  struct node * temp = malloc(sizeof(struct node));
-  temp->p = *p;
-  temp->next = 0;
-  return temp;
-}
-
-struct queue{
-  struct node * head;
-  struct node * tail;
-}
-
-struct queue * create_queue()
-{
-  struct queue * q = malloc(sizeof(struct queue));
-  q->head = q->tail = 0;
-  return q;
-}
-
-struct queue * insert_in_queue(struct queue  * q , struct proc * p) // insertion always take place at the tail
-{
-    struct node * temp = create_node(p); // creating a node
-    if(q->tail == 0)
-    {
-      q->head = q->tail = temp;
-    }
-    else{
-    q->tail->next = temp;
-    q->tail = q->tail->next;
-    }
-    return q;
-}
-struct proc * remove_from_queue(struct queue * q)
-{
-    if(q->head == 0)
-        return 0;
-
-    struct node * temp = q->head;
-    struct proc * p = &(temp->p);
-    q->head = q->head->next;
-    if(q->head == 0)
-        q->tail = 0;
-    free(temp);  // Free the removed node
-    return p; 
-}
+  
+#define NUMBER_OF_QUEUES 4 
+#define BOOST_INTERVAL 48 
+int time_since_priority_boost = 0;
+// 1 4 8 16 
 #endif
 void
 scheduler(void)
@@ -661,30 +618,108 @@ scheduler(void)
   struct proc *p;
   struct cpu *c = mycpu();
   c->proc = 0;
-
-    // MLFQ code should be added
-    // we first need to define the queues
-    // generating all the queues at intialization
-    struct queue * q0 = create_queue();
-    struct queue * q1 = create_queue();
-    struct queue * q2 = create_queue();
-    struct queue * q3 = create_queue();   
   
-  // now we need to insert all the processes in the queue according to their priority
-   // all the process start off in queue 0 
-  for(int i = 0; i < NPROC; i++)
-  {
-    if(proc[i].priority == 0)
-      q0 = insert_in_queue(q0, &proc[i]);
-  }
-
-  for (;;)
-  {
+  for(;;){
     intr_on();
-    
-  }
-  
 
+    int found = 0;
+    if (time_since_priority_boost >= BOOST_INTERVAL) {
+        // Reset priority for all processes and update arrival time
+        for (p = proc; p < &proc[NPROC]; p++) {
+            acquire(&p->lock);
+            if (p->state != UNUSED) { // Only reset for used processes
+                p->priority = 0;
+                p->arrival_time = time_counter++;  // Set new arrival time to ensure proper order
+                p->ticks_in_queue = 0;             // Reset ticks for new time slice
+                p->time_slice = 1;                 // Reset the time slice to initial level
+            }
+            release(&p->lock);
+        }
+        time_since_priority_boost = 0;  // Reset the priority boost timer
+    }
+
+    for (int priority = 0; priority < NUMBER_OF_QUEUES; priority++) {
+        struct proc *candidates_list[NPROC];
+        int num_candidates = 0;
+
+        // Search for runnable processes with the current priority
+        for (p = proc; p < &proc[NPROC]; p++) {
+            acquire(&p->lock);
+            
+            if (p->state == RUNNABLE && p->priority == priority) {
+                // Add process to the list of candidates for the current priority
+                if (num_candidates < NPROC) {
+                    candidates_list[num_candidates++] = p;
+                }
+            }
+
+            release(&p->lock);
+        }
+      
+        if (num_candidates > 0) {
+            struct proc *earliest_proc = candidates_list[0];
+
+            // Find the process with the lowest arrival time
+            for (int i = 1; i < num_candidates; i++) {
+                if (candidates_list[i]->arrival_time < earliest_proc->arrival_time) {
+                    earliest_proc = candidates_list[i];
+                }
+            }
+
+            // Pick the process with the earliest arrival time
+            p = earliest_proc;
+
+            acquire(&p->lock);
+
+            if(p->state == RUNNABLE) {
+              p->state = RUNNING;
+              c->proc = p;
+              swtch(&c->context, &p->context);
+
+              p->ticks_in_queue++;
+              time_since_priority_boost++;
+              if(p->ticks_in_queue >= p->time_slice)
+              {
+                // moving them down
+                 if(p->priority == 0)
+                 {
+                    p->priority = 1;
+                    p->time_slice = 4;
+                    p->ticks_in_queue = 0;
+                 }
+                 else if(p->priority == 1)
+                 {
+                    p->priority = 2;
+                    p->time_slice = 8;
+                    p->ticks_in_queue = 0;
+                 }
+                 else if(p->priority == 2)
+                 {
+                   
+                    p->priority = 3;
+                    p->time_slice = 16;
+                    p->ticks_in_queue = 0;  
+                 }
+                 else 
+                 {
+                   //when our priority is 3 
+                   p->ticks_in_queue = 0;
+                   p->arrival_time = time_counter++; // moving it to the end
+                 }
+              }
+              c->proc = 0;
+              found = 1;
+          }
+          release(&p->lock);
+          break;
+        }
+    }
+    
+    if(found == 0) {
+      intr_on();
+      asm volatile("wfi");
+    }
+  }
   # else 
   printf("Unknown scheduler passed\n");
   #endif
@@ -882,7 +917,6 @@ procdump(void)
 {
   static char *states[] = {
   [UNUSED]    "unused",
-  [USED]      "used",
   [SLEEPING]  "sleep ",
   [RUNNABLE]  "runble",
   [RUNNING]   "run   ",
@@ -890,8 +924,9 @@ procdump(void)
   };
   struct proc *p;
   char *state;
-
+  # ifdef SCHED_MLFQ
   printf("\n");
+  printf("PID  State     Priority  Time Slice  Ticks in Queue  Arrival Time  Name\n");
   for(p = proc; p < &proc[NPROC]; p++){
     if(p->state == UNUSED)
       continue;
@@ -899,9 +934,12 @@ procdump(void)
       state = states[p->state];
     else
       state = "???";
-    printf("%d %s %s", p->pid, state, p->name);
-    printf("\n");
+    printf("%d    %s    %d         %d           %d              %d            %s\n", 
+           p->pid, state, p->priority, p->time_slice, p->ticks_in_queue, p->arrival_time, p->name);
   }
+  printf("\nCurrent time counter: %ld\n", time_counter);
+  printf("Time since last priority boost: %d\n", time_since_priority_boost);
+  # endif
 }
 int
 proc_sigalarm(int interval, uint64 handler)
